@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+release/
+raw/
+tools/
+data/raw/
+source-assets/
+data/workbench.sqlite
+data/workbench.sqlite.tmp
+exports/
+实验结果导出_*.csv
+reading-sessions.*
+*.log
+*.tsbuildinfo
+*.db
