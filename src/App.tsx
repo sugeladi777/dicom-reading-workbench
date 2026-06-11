@@ -26,6 +26,12 @@ const REPORT_QUALITY_LABELS: Record<keyof ReportQuality, string> = {
   usability: '整体可用性'
 };
 
+const REASONING_QUALITY_LABELS = {
+  caseFit: '是否对应本病例',
+  medicalProfessionalism: '是否符合医学知识',
+  value: '是否有价值'
+} as const;
+
 type ModalMode = 'reasoning' | 'submit' | null;
 type ReasoningDragState = { startX: number; startY: number; right: number; bottom: number } | null;
 
@@ -60,6 +66,14 @@ function withTemplate(template: string, value: string) {
 }
 
 function hasCompleteReportQuality(value: ReportQuality) {
+  return Object.values(value).every((item) => item > 0);
+}
+
+function emptyReasoningQuality() {
+  return { caseFit: 0, medicalProfessionalism: 0, value: 0 };
+}
+
+function hasCompleteReasoningQuality(value: { caseFit: number; medicalProfessionalism: number; value: number }) {
   return Object.values(value).every((item) => item > 0);
 }
 
@@ -127,6 +141,7 @@ export function App() {
   const [reasoningGoalAchieved, setReasoningGoalAchieved] = useState('');
   const [finalConfidence, setFinalConfidence] = useState('');
   const [reportQuality, setReportQuality] = useState<ReportQuality>(() => emptyReportQuality());
+  const [reasoningQuality, setReasoningQuality] = useState(() => emptyReasoningQuality());
   const [loadingCases, setLoadingCases] = useState(false);
   const [loadingImages, setLoadingImages] = useState(false);
   const [viewerError, setViewerError] = useState('');
@@ -347,6 +362,7 @@ export function App() {
     setReasoningGoalAchieved('');
     setFinalConfidence('');
     setReportQuality(emptyReportQuality());
+    setReasoningQuality(emptyReasoningQuality());
     setLastSessionId(null);
     setViewerError('');
     setViewerSeries([]);
@@ -439,6 +455,7 @@ export function App() {
       patientId: currentCaseSummary.patientId,
       startedAt,
       writingStartedAt,
+      diagnosisHintSavedAt: '',
       reasoningRequestedAt,
       reasoningShownAt,
       submitOpenedAt: submitOpenedAt || '',
@@ -449,12 +466,14 @@ export function App() {
       viewedReasoning,
       description,
       diagnosis,
+      savedBeforeDiagnosis: '',
       savedBeforeReasoning,
       reasoningConfidence,
       reasoningPurposes,
       reasoningGoalAchieved,
       finalConfidence,
       reportQuality,
+      reasoningQuality,
       viewerCaseIds: viewerSeries.map((item) => item.caseId),
       viewerLayout,
       focusedViewerIndex,
@@ -489,6 +508,7 @@ export function App() {
       setReasoningGoalAchieved(draft.reasoningGoalAchieved || '');
       setFinalConfidence(draft.finalConfidence || '');
       setReportQuality(draft.reportQuality || emptyReportQuality());
+      setReasoningQuality(draft.reasoningQuality || emptyReasoningQuality());
       await loadViewerSeriesBundle(draft.viewerCaseIds?.length ? draft.viewerCaseIds : [draft.caseId], draft.viewerLayout, Number(draft.focusedViewerIndex) || 0);
       setStatus(`已恢复病例 ${draft.caseId} 的未提交现场。`);
     } finally {
@@ -599,6 +619,10 @@ export function App() {
       setStatus('请填写推理目的是否实现后再提交。');
       return;
     }
+    if (viewedReasoning && !hasCompleteReasoningQuality(reasoningQuality)) {
+      setStatus('请完成推理质量评分后再提交。');
+      return;
+    }
     if (!reportQualityCompleted) {
       setStatus('请完成全部报告质量评分后再提交。');
       return;
@@ -625,13 +649,20 @@ export function App() {
       savedBeforeReasoning,
       finalDescription: description,
       finalDiagnosis: diagnosis,
-      timingEvents: { focusedViewerIndex },
+      timingEvents: {
+        focusedViewerIndex,
+        startedAt,
+        writingStartedAt,
+        reasoningRequestedAt,
+        reasoningShownAt,
+        submitOpenedAt: submitOpenedAt || ''
+      },
       reasoningConfidence,
       reasoningPurposes,
       finalConfidence,
       reportQuality,
       reasoningGoalAchieved,
-      reasoningQuality: { caseFit: 0, medicalProfessionalism: 0, value: 0 }
+      reasoningQuality
     };
 
     try {
@@ -1046,13 +1077,34 @@ export function App() {
                   </label>
                 ))}
               </section>
+              {viewedReasoning && (
+                <section>
+                  <h3>推理质量</h3>
+                  {Object.entries(REASONING_QUALITY_LABELS).map(([key, label]) => (
+                    <label key={`reasoning-${key}`} className="rating-item">
+                      <div>
+                        <strong>{label}</strong>
+                        <span>1 分 - 5 分</span>
+                      </div>
+                      <StarRating
+                        value={reasoningQuality[key as keyof typeof reasoningQuality]}
+                        onChange={(value) => setReasoningQuality((current) => ({ ...current, [key]: value }))}
+                      />
+                    </label>
+                  ))}
+                </section>
+              )}
             </div>
 
             <div className="modal-actions">
               <button type="button" onClick={() => setModalMode(null)}>
                 返回修改
               </button>
-              <button type="button" onClick={() => void submitSession()} disabled={!finalConfidence || !reportQualityCompleted || (viewedReasoning && !reasoningGoalAchieved)}>
+              <button
+                type="button"
+                onClick={() => void submitSession()}
+                disabled={!finalConfidence || !reportQualityCompleted || (viewedReasoning && (!reasoningGoalAchieved || !hasCompleteReasoningQuality(reasoningQuality)))}
+              >
                 确认提交
               </button>
             </div>

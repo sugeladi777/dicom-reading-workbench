@@ -94,6 +94,7 @@ export type ActiveDraftPayload = {
   patientId: string;
   startedAt: string;
   writingStartedAt: string;
+  diagnosisHintSavedAt: string;
   reasoningRequestedAt: string;
   reasoningShownAt: string;
   submitOpenedAt: string;
@@ -104,12 +105,14 @@ export type ActiveDraftPayload = {
   viewedReasoning: boolean;
   description: string;
   diagnosis: string;
+  savedBeforeDiagnosis: string;
   savedBeforeReasoning: string;
   reasoningConfidence: string;
   reasoningPurposes: string[];
   reasoningGoalAchieved: string;
   finalConfidence: string;
   reportQuality: ReportQuality;
+  reasoningQuality: ReasoningQuality;
   viewerCaseIds: string[];
   viewerLayout: string;
   focusedViewerIndex: number;

@@ -463,6 +463,7 @@ async function initDatabase() {
       reasoning_goal_achieved TEXT,
       final_confidence TEXT,
       report_quality_json TEXT,
+      reasoning_quality_json TEXT,
       viewer_case_ids_json TEXT,
       viewer_layout TEXT,
       focused_viewer_index INTEGER,
@@ -476,6 +477,7 @@ async function initDatabase() {
   ensureColumn('sessions', 'submit_opened_at', 'TEXT');
   ensureColumn('sessions', 'timing_events_json', 'TEXT');
   ensureColumn('report_drafts', 'saved_before_diagnosis', 'TEXT');
+  ensureColumn('active_drafts', 'reasoning_quality_json', 'TEXT');
   flushDb();
 }
 
@@ -580,8 +582,8 @@ function saveDraft(payload) {
       task_elapsed_ms, total_elapsed_ms, task_running, total_running, viewed_reasoning,
       description, diagnosis, saved_before_reasoning,
       reasoning_confidence, reasoning_purposes_json, reasoning_goal_achieved, final_confidence,
-      report_quality_json, viewer_case_ids_json, viewer_layout, focused_viewer_index, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      report_quality_json, reasoning_quality_json, viewer_case_ids_json, viewer_layout, focused_viewer_index, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(case_id) DO UPDATE SET
       reader_id = excluded.reader_id,
       modality = excluded.modality,
@@ -604,6 +606,7 @@ function saveDraft(payload) {
       reasoning_goal_achieved = excluded.reasoning_goal_achieved,
       final_confidence = excluded.final_confidence,
       report_quality_json = excluded.report_quality_json,
+      reasoning_quality_json = excluded.reasoning_quality_json,
       viewer_case_ids_json = excluded.viewer_case_ids_json,
       viewer_layout = excluded.viewer_layout,
       focused_viewer_index = excluded.focused_viewer_index,
@@ -632,6 +635,7 @@ function saveDraft(payload) {
     payload.reasoningGoalAchieved || '',
     payload.finalConfidence || '',
     JSON.stringify(payload.reportQuality || {}),
+    JSON.stringify(payload.reasoningQuality || {}),
     JSON.stringify(payload.viewerCaseIds || []),
     payload.viewerLayout || '',
     payload.focusedViewerIndex || 0,
@@ -651,6 +655,7 @@ function mapDraftRow(row) {
     viewedReasoning: Boolean(row.viewed_reasoning),
     reasoningPurposes: JSON.parse(row.reasoning_purposes_json || '[]'),
     reportQuality: JSON.parse(row.report_quality_json || '{}'),
+    reasoningQuality: JSON.parse(row.reasoning_quality_json || '{}'),
     viewerCaseIds: JSON.parse(row.viewer_case_ids_json || '[]')
   };
 }
@@ -705,48 +710,97 @@ function csvCell(value) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
+function compactReasoningQuality(value = {}) {
+  return {
+    符合医学知识: value.medicalProfessionalism || 0,
+    对应本病例: value.caseFit || 0,
+    有价值: value.value || 0
+  };
+}
+
+function flattenSavedBeforeReasoning(value) {
+  const parsed = parseSavedBeforeReasoning(value);
+  return {
+    查看推理前影像所见: parsed?.影像所见 || parsed?.['褰卞儚鎵€瑙?'] || '',
+    查看推理前诊断意见: parsed?.诊断意见 || parsed?.['璇婃柇鎰忚'] || '',
+    查看推理前保存时间: parsed?.保存时间 || parsed?.['淇濆瓨鏃堕棿'] || ''
+  };
+}
+
+function sessionToCsvRecord(row) {
+  const viewedReasoning = Boolean(row.viewed_reasoning);
+  const savedBeforeReasoning = flattenSavedBeforeReasoning(row.saved_before_reasoning);
+  return {
+    记录编号: row.id,
+    阅片者编号: row.reader_id || '',
+    病例编号: row.case_id || '',
+    模态: row.modality || '',
+    患者编号: row.patient_id || '',
+    开始阅片时间: row.started_at || '',
+    开始书写时间: row.writing_started_at || '',
+    查看推理点击时间: row.reasoning_requested_at || '',
+    查看推理显示时间: row.reasoning_shown_at || '',
+    打开提交问卷时间: row.submit_opened_at || '',
+    提交时间: row.submitted_at || '',
+    当前用时秒: secondsFromMs(row.task_elapsed_ms),
+    累计用时秒: secondsFromMs(row.total_elapsed_ms),
+    是否查看推理: viewedReasoning ? '是' : '否',
+    查看推理前把握程度: row.reasoning_confidence || '',
+    查看推理目的: viewedReasoning ? (row.reasoning_purposes || []).join('；') : '',
+    推理目的是否实现: row.reasoning_goal_achieved || '',
+    推理质量_符合医学知识: viewedReasoning ? row.reasoning_quality?.medicalProfessionalism || 0 : '',
+    推理质量_对应本病例: viewedReasoning ? row.reasoning_quality?.caseFit || 0 : '',
+    推理质量_有价值: viewedReasoning ? row.reasoning_quality?.value || 0 : '',
+    最终把握程度: row.final_confidence || '',
+    报告质量_结构完整性: row.report_quality?.structure || 0,
+    报告质量_病灶定位: row.report_quality?.localization || 0,
+    报告质量_特征描述: row.report_quality?.feature || 0,
+    报告质量_诊断准确性: row.report_quality?.accuracy || 0,
+    报告质量_整体可用性: row.report_quality?.usability || 0,
+    查看推理前影像所见: viewedReasoning ? savedBeforeReasoning.查看推理前影像所见 : '',
+    查看推理前诊断意见: viewedReasoning ? savedBeforeReasoning.查看推理前诊断意见 : '',
+    最终影像所见: row.final_description || row.description || '',
+    最终诊断意见: row.final_diagnosis || row.diagnosis || ''
+  };
+}
+
 function sessionsToCsv(rows) {
-  const headers = [
-    'id',
-    'reader_id',
-    'case_id',
-    'modality',
-    'patient_id',
-    'started_at',
-    'submitted_at',
-    'writing_started_at',
-    'diagnosis_hint_saved_at',
-    'reasoning_requested_at',
-    'reasoning_shown_at',
-    'submit_opened_at',
-    'task_elapsed_ms',
-    'total_elapsed_ms',
-    'viewed_reasoning',
-    'timing_events',
-    'reasoning_confidence',
-    'reasoning_purposes',
-    'final_confidence',
-    'report_quality',
-    'reasoning_goal_achieved',
-    'reasoning_quality',
-    'saved_before_diagnosis',
-    'saved_before_reasoning',
-    'final_description',
-    'final_diagnosis'
+  const records = rows.map(sessionToCsvRecord);
+  const headers = records.length ? Object.keys(records[0]) : [
+    '记录编号',
+    '阅片者编号',
+    '病例编号',
+    '模态',
+    '患者编号',
+    '开始阅片时间',
+    '开始书写时间',
+    '查看推理点击时间',
+    '查看推理显示时间',
+    '打开提交问卷时间',
+    '提交时间',
+    '当前用时秒',
+    '累计用时秒',
+    '是否查看推理',
+    '查看推理前把握程度',
+    '查看推理目的',
+    '推理目的是否实现',
+    '推理质量_符合医学知识',
+    '推理质量_对应本病例',
+    '推理质量_有价值',
+    '最终把握程度',
+    '报告质量_结构完整性',
+    '报告质量_病灶定位',
+    '报告质量_特征描述',
+    '报告质量_诊断准确性',
+    '报告质量_整体可用性',
+    '查看推理前影像所见',
+    '查看推理前诊断意见',
+    '最终影像所见',
+    '最终诊断意见'
   ];
   const lines = [headers.map(csvCell).join(',')];
-  for (const row of rows) {
-    lines.push(
-      headers
-        .map((key) => {
-          if (key === 'reasoning_purposes') return csvCell((row.reasoning_purposes || []).join(';'));
-          if (key === 'report_quality') return csvCell(JSON.stringify(row.report_quality || {}));
-          if (key === 'reasoning_quality') return csvCell(JSON.stringify(row.reasoning_quality || {}));
-          if (key === 'timing_events') return csvCell(JSON.stringify(row.timing_events || {}));
-          return csvCell(row[key]);
-        })
-        .join(',')
-    );
+  for (const record of records) {
+    lines.push(headers.map((key) => csvCell(record[key])).join(','));
   }
   return lines.join('\r\n');
 }
