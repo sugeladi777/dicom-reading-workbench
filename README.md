@@ -1,148 +1,124 @@
-﻿# 人机实验阅片工作台使用说明
+# 人机实验阅片工作台
 
-## 1. 启动软件
+一个面向 CT / MRI 人机实验场景的 Windows 本地阅片桌面应用。
 
-双击 `人机实验阅片工作台 0.1.0.exe` 启动。建议把 exe 放在固定文件夹中使用，程序会在 exe 同级目录创建：
+项目当前主要用于离线科研流程：
+
+- 加载本地 DICOM 病例
+- 单窗或多分屏阅片
+- 填写结构化报告
+- 展示 AI 参考内容与推理
+- 记录计时、问卷与提交结果
+- 导出实验数据
+
+本项目用于科研实验，不作为临床正式诊断系统使用。
+
+## 技术栈
+
+- Electron
+- React
+- TypeScript
+- Vite
+- `sql.js` 本地存储提交结果
+
+## 当前功能
+
+- 本地病例扫描与导入
+- DICOM 切片浏览
+- 分屏拖拽插入与替换
+- 窗宽窗位、平移、旋转、翻转、测量
+- 报告填写与实验流程控制
+- 推理查看问卷与提交问卷
+- CSV / JSON / DOCX / PDF 导出
+
+## 项目结构
 
 ```text
-data\raw\              病例数据
-data\workbench.sqlite  提交记录
+dicom-reading-workbench/
+├─ data/                 运行数据目录
+│  └─ raw/               病例原始数据与配套 JSON
+├─ electron/             Electron 主进程与预加载脚本
+├─ scripts/              辅助脚本
+├─ source-assets/        需求文档与参考素材
+├─ src/                  React 前端源码
+├─ tools/                本地便携工具（当前为 Node.js）
+├─ index.html            Vite 入口页面
+├─ package.json          依赖与脚本配置
+├─ README.md             项目说明
+├─ run.bat               Windows 启动脚本
+├─ tsconfig.json         TypeScript 配置
+└─ vite.config.ts        Vite 配置
 ```
 
-## 2. 病例数据存放
+## 关键文件
 
-程序读取：
+- `src/App.tsx`：主流程、报告区、问卷、计时、提交逻辑
+- `src/components/DicomViewer.tsx`：阅片器、分屏布局、工具栏、拖拽替换
+- `src/dicom.ts`：DICOM 解析与像素读取
+- `src/types.ts`：共享类型定义
+- `electron/main.cjs`：桌面壳、菜单、导入导出、数据库保存、IPC
+- `electron/preload.cjs`：向前端暴露 `window.workbench` API
 
-```text
-exe所在目录\data\raw\
-```
+## 数据目录约定
+
+程序从 `data/raw/` 扫描病例。
 
 推荐结构：
 
 ```text
-data\raw\
-  001_CT\
-    image001.dcm
-    image002.dcm
-  002_CT\
-    image001.dcm
-  003_MRI\
-    image001.dcm
+data/
+  raw/
+    001_CT/
+      image001.dcm
+      image002.dcm
+    001_CT.json
 ```
 
-支持 `.dcm`、`.dicom`、`.ima`，也支持无扩展名但文件头包含 `DICM` 的 DICOM 文件。
+支持的 DICOM 文件类型：
 
-可选 JSON 文件名需要和病例文件夹一致，例如：
+- `.dcm`
+- `.dicom`
+- `.ima`
+- 无扩展名但文件头包含 `DICM` 的文件
 
-```text
-data\raw\
-  001_CT\
-    image001.dcm
-  001_CT.json
-```
-
-JSON 可包含：
+病例对应 JSON 可包含：
 
 ```json
 {
   "patientId": "20240506002311",
-  "description": "影像所见文本",
-  "diagnosis": "诊断意见文本",
-  "reasoning": "推理内容文本"
+  "description": "AI 参考描述",
+  "diagnosis": "AI 参考诊断",
+  "reasoning": "AI 推理内容"
 }
 ```
 
-其中 `reasoning` 会用于软件中的 `显示推理` 功能。
+## 开发启动
 
-## 3. 导入数据
+已安装全局 Node.js 时：
 
-左上角菜单：
-
-```text
-文件 -> 导入文件夹...
-文件 -> 导入 ZIP...
+```bash
+npm install
+npm run dev
 ```
 
-外部文件夹或 ZIP 会导入到：
+在 Windows 下使用项目自带 Node.js 时：
 
-```text
-data\raw\imported\
+```bat
+set PATH=%CD%\tools\node-v22.22.3-win-x64;%PATH%
+npm install
+npm run dev
 ```
 
-导入后左侧会显示病例列表。
+常用命令：
 
-## 4. 基本阅片流程
-
-1. 左侧填写或确认 `阅片者编号`。
-2. 在病例列表中选择病例。
-3. 点击 `开始阅片`。
-4. 中间查看 DICOM 图像。
-5. 右侧填写 `影像所见` 和 `诊断意见`。
-6. 可按需要点击 `显示推理`。
-7. 点击 `提交结果`，填写问卷后确认提交。
-8. 提交后的病例会显示为绿色。
-
-注意：开始阅片后，当前任务提交前不能再次点击 `开始阅片` 重置任务。
-
-## 5. 显示推理流程
-
-点击 `显示推理` 后，软件会先询问：
-
-- 当前把握程度
-- 查看推理目的
-
-确认后：
-
-- 自动保存当前报告区文本
-- 当前用时归零并暂停
-- 累计用时不归零
-- 显示推理内容浮窗
-
-查看推理后，如果继续在报告区输入文字，当前用时会重新开始计时。
-
-提交时：
-
-- 如果没有点击过 `显示推理`：只填写最终把握程度和报告质量评分
-- 如果点击过 `显示推理`：还需要填写推理目的是否实现
-
-## 6. 分屏对比
-
-开始阅片后，可把左侧病例拖到中间图像区域：
-
-- 拖到左侧：左侧插入分屏
-- 拖到右侧：右侧插入分屏
-- 拖到上方：上方插入分屏
-- 拖到下方：下方插入分屏
-- 拖到中央：替换当前分屏
-
-最多支持 4 个分屏。
-
-## 7. 图像操作
-
-- 鼠标滚轮：切换切片
-- `同步`：多分屏同步翻页
-- `信息`：显示或隐藏 DICOM 信息
-- `平移`：拖动画面
-- `窗宽窗位`：调整窗宽窗位
-- `直线 / 角度 / 矩形 / 椭圆`：测量工具
-- `清除`：清除当前分屏测量
-- `水平翻转 / 垂直翻转 / 左转 / 右转`：调整方向
-
-快捷键：`Space` 开始阅片，`T` 提交，`P` 平移，`W` 窗宽窗位，`L` 直线，`A` 角度，`B` 矩形，`C` 椭圆，`X` 清除，`S` 同步，`I` 信息，`H` 水平翻转，`V` 垂直翻转，`[` 左转，`]` 右转。
-
-## 8. 导出结果
-
-左上角菜单：
-
-```text
-导出 -> 导出 CSV
-导出 -> 导出 JSON
+```bash
+npm run dev
+npm run build
+npm run verify:data
 ```
 
-提交记录保存在：
+## 说明
 
-```text
-data\workbench.sqlite
-```
-
-建议通过 CSV 或 JSON 导出结果，不要直接修改数据库文件。
+- 运行数据库默认保存在 `data/` 下
+- 大体积数据、导出结果、构建产物默认不纳入 Git
+- 原始需求文档保存在 `source-assets/` 下
