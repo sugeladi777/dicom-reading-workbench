@@ -1,14 +1,15 @@
 const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
-const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { promisify, TextDecoder } = require('node:util');
+const { TextDecoder } = require('node:util');
+const extractZip = require('extract-zip');
 const initSqlJs = require('sql.js');
 
 const isDevServer = process.env.WORKBENCH_DEV === '1';
 const appRoot = app.isPackaged ? path.join(__dirname, '..') : process.cwd();
+const isPortableWindows = app.isPackaged && process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_DIR;
 const userRoot = app.isPackaged
-  ? process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath)
+  ? (isPortableWindows ? process.env.PORTABLE_EXECUTABLE_DIR : app.getPath('userData'))
   : process.cwd();
 const dataRoot = path.join(userRoot, 'data');
 const rawRoot = path.join(dataRoot, 'raw');
@@ -18,7 +19,6 @@ const dbPath = path.join(dataRoot, 'workbench.sqlite');
 let mainWindow;
 let db;
 let caseCache = new Map();
-const execFileAsync = promisify(execFile);
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -117,19 +117,7 @@ async function importFolder(source) {
 async function importZip(source) {
   const destination = uniqueImportDestination(source);
   ensureDir(destination);
-  const quotedSource = source.replaceAll("'", "''");
-  const quotedDestination = destination.replaceAll("'", "''");
-  await execFileAsync(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      `Expand-Archive -LiteralPath '${quotedSource}' -DestinationPath '${quotedDestination}' -Force`
-    ],
-    { windowsHide: true, maxBuffer: 1024 * 1024 * 10 }
-  );
+  await extractZip(source, { dir: destination });
   return summarizeImportedSource(source, destination, true);
 }
 
@@ -160,7 +148,7 @@ function setApplicationMenu() {
       submenu: [
         {
           label: '导入文件夹...',
-          accelerator: 'Ctrl+I',
+          accelerator: 'CmdOrCtrl+I',
           click: async () => {
             try {
               notifyImportResult(await importDataFolderFromDialog());
@@ -171,7 +159,7 @@ function setApplicationMenu() {
         },
         {
           label: '导入 ZIP...',
-          accelerator: 'Ctrl+Shift+I',
+          accelerator: 'CmdOrCtrl+Shift+I',
           click: async () => {
             try {
               notifyImportResult(await importDataZipFromDialog());

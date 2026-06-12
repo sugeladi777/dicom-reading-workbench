@@ -7,10 +7,11 @@
   "main": "electron/main.cjs",
   "author": "OpenAI Codex",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && set WORKBENCH_DEV=1&& set ELECTRON_RUN_AS_NODE=&& electron .\"",
-    "start": "set ELECTRON_RUN_AS_NODE=&& electron .",
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env WORKBENCH_DEV=1 electron .\"",
+    "start": "electron .",
     "build": "tsc -b && vite build",
     "pack:win": "npm run build && electron-builder --win portable",
+    "pack:mac": "npm run build && electron-builder --mac dmg zip",
     "preview": "vite preview",
     "verify:data": "node scripts/verify-data.mjs"
   },
@@ -30,12 +31,14 @@
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
+    "cross-env": "^10.1.0",
     "electron": "^42.3.0",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "extract-zip": "^2.0.1"
   },
   "build": {
     "appId": "com.openai.dicom-reading-workbench",
-    "productName": "人机实验阅片工作台",
+    "productName": "DICOM Reading Workbench",
     "directories": {
       "output": "release"
     },
@@ -54,6 +57,25 @@
           "target": "portable",
           "arch": [
             "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.medical",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
           ]
         }
       ]
