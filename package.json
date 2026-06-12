@@ -10,8 +10,8 @@
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env WORKBENCH_DEV=1 electron .\"",
     "start": "electron .",
     "build": "tsc -b && vite build",
-    "pack:win": "npm run build && electron-builder --win portable",
-    "pack:mac": "npm run build && electron-builder --mac dmg zip",
+    "pack:win": "npm run build && electron-builder --win portable --publish never",
+    "pack:mac": "npm run build && electron-builder --mac dmg zip --publish never",
     "preview": "vite preview",
     "verify:data": "node scripts/verify-data.mjs"
   },
