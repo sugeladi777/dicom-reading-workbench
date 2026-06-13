@@ -52,7 +52,12 @@ jobs:
       - name: Build installer
         run: npm run ${{ matrix.npm_script }}
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.os == 'macos-latest' && secrets.MACOS_CERTIFICATE_P12_BASE64 != '' && 'true' || 'false' }}
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 != '' && format('base64:{0}', secrets.MACOS_CERTIFICATE_P12_BASE64) || '' }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || '' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

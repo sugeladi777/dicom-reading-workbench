@@ -104,6 +104,14 @@ npm run verify:data
   - Windows: `.exe`
   - macOS: `.dmg`、`.zip`
 
+如需让 macOS 安装包通过签名与公证，还需要在 GitHub 仓库中配置以下 Secrets：
+
+- `MACOS_CERTIFICATE_P12_BASE64`：Apple Developer ID Application 证书导出的 `.p12` 文件 Base64 内容
+- `MACOS_CERTIFICATE_PASSWORD`：该 `.p12` 的导出密码
+- `APPLE_ID`：用于 notarization 的 Apple ID
+- `APPLE_APP_SPECIFIC_PASSWORD`：Apple ID 的 app-specific password
+- `APPLE_TEAM_ID`：Apple Developer Team ID
+
 示例发版命令：
 
 ```bash
