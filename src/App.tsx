@@ -9,7 +9,8 @@ import type {
   ReportQuality,
   SaveSessionPayload,
   ViewerSeries,
-  WorkbenchCase
+  WorkbenchCase,
+  WorkspaceSummary
 } from './types';
 
 const DESCRIPTION_TEMPLATE = '【影像所见】\n';
@@ -157,6 +158,10 @@ export function App() {
   const [reasoningPanelPosition, setReasoningPanelPosition] = useState({ right: 22, bottom: 22 });
   const [reasoningDragging, setReasoningDragging] = useState<ReasoningDragState>(null);
   const [restoringDraft, setRestoringDraft] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceSummary | null>(null);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [switchingWorkspace, setSwitchingWorkspace] = useState(false);
 
   const active = Boolean(startedAt);
   const lastTick = useRef(Date.now());
@@ -195,7 +200,7 @@ export function App() {
   }, [caseSearch, cases, completedCaseIds, modalityFilter, showOnlyPending]);
 
   useEffect(() => {
-    void refreshCases();
+    void initializeWorkspaces();
   }, []);
 
   useEffect(() => {
@@ -318,6 +323,20 @@ export function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   });
 
+  async function initializeWorkspaces() {
+    setSwitchingWorkspace(true);
+    try {
+      const [workspaceList, current] = await Promise.all([window.workbench.listWorkspaces(), window.workbench.getCurrentWorkspace()]);
+      setWorkspaces(workspaceList);
+      setCurrentWorkspace(current);
+      await refreshCases();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '工作区初始化失败。');
+    } finally {
+      setSwitchingWorkspace(false);
+    }
+  }
+
   async function refreshCases() {
     setLoadingCases(true);
     try {
@@ -338,6 +357,58 @@ export function App() {
       setStatus(error instanceof Error ? error.message : '病例扫描失败。');
     } finally {
       setLoadingCases(false);
+    }
+  }
+
+  async function handleSwitchWorkspace(workspaceId: string) {
+    if (!workspaceId || workspaceId === currentWorkspace?.id) return;
+    setSwitchingWorkspace(true);
+    try {
+      resetSessionState();
+      setCaseDetail(null);
+      setSelectedCaseId('');
+      const result = await window.workbench.switchWorkspace(workspaceId);
+      const workspaceList = await window.workbench.listWorkspaces();
+      setWorkspaces(workspaceList);
+      setCurrentWorkspace(result.workspace);
+      setCases(result.cases);
+      setCompletedCaseIds([]);
+      setDraftCaseIds([]);
+      if (result.cases.length) setSelectedCaseId(result.cases[0].caseId);
+      setStatus(`已切换到工作区 ${result.workspace.name}，共 ${result.cases.length} 个病例。`);
+      await refreshCases();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '切换工作区失败。');
+    } finally {
+      setSwitchingWorkspace(false);
+    }
+  }
+
+  async function handleCreateWorkspace() {
+    const name = newWorkspaceName.trim();
+    if (!name) {
+      setStatus('请先输入工作区名称。');
+      return;
+    }
+    setSwitchingWorkspace(true);
+    try {
+      resetSessionState();
+      setCaseDetail(null);
+      setSelectedCaseId('');
+      const result = await window.workbench.createWorkspace(name);
+      const workspaceList = await window.workbench.listWorkspaces();
+      setWorkspaces(workspaceList);
+      setCurrentWorkspace(result.workspace);
+      setCases(result.cases);
+      setCompletedCaseIds([]);
+      setDraftCaseIds([]);
+      setNewWorkspaceName('');
+      setStatus(`已创建并切换到工作区 ${result.workspace.name}。`);
+      await refreshCases();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '创建工作区失败。');
+    } finally {
+      setSwitchingWorkspace(false);
     }
   }
 
@@ -699,6 +770,7 @@ export function App() {
   function applyImportedData(result: ImportDataResult) {
     if (!('cases' in result)) return;
     const imported = result;
+    setCurrentWorkspace(imported.workspace);
     setCases(imported.cases);
     setCaseSearch('');
     setModalityFilter('all');
@@ -808,6 +880,42 @@ export function App() {
               <span className="eyebrow">DICOM Reading Workbench</span>
               <strong>阅片实验工作台</strong>
               <span>主页面保留核心阅片流程，导入与导出放在左上角系统菜单中。</span>
+            </div>
+          </section>
+
+          <section className="card-panel compact-panel">
+            <div className="section-caption">
+              <span className="eyebrow">Workspace</span>
+              <strong>工作区</strong>
+            </div>
+            <div className="reader-field workspace-field">
+              <label htmlFor="workspace-select">当前工作区</label>
+              <select
+                id="workspace-select"
+                value={currentWorkspace?.id || ''}
+                onChange={(event) => void handleSwitchWorkspace(event.target.value)}
+                disabled={switchingWorkspace || active}
+              >
+                {workspaces.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="workspace-meta">
+              <span>{currentWorkspace ? currentWorkspace.rawPath : '未加载工作区'}</span>
+            </div>
+            <div className="workspace-create-row">
+              <input
+                value={newWorkspaceName}
+                onChange={(event) => setNewWorkspaceName(event.target.value)}
+                placeholder="新建一组数据工作区"
+                disabled={switchingWorkspace || active}
+              />
+              <button type="button" onClick={() => void handleCreateWorkspace()} disabled={switchingWorkspace || active}>
+                新建
+              </button>
             </div>
           </section>
 

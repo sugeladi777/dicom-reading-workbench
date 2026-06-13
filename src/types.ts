@@ -43,6 +43,15 @@ export type ExternalDicomFolder = {
   dicomFiles: string[];
 };
 
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  rootPath: string;
+  rawPath: string;
+  dbPath: string;
+};
+
 export type ReportQuality = {
   structure: number;
   localization: number;
@@ -126,6 +135,7 @@ export type ImportDataResult =
       source: string;
       destination: string;
       copied: boolean;
+      workspace: WorkspaceSummary;
       dicomFiles: number;
       jsonFiles: number;
       cases: WorkbenchCase[];
@@ -135,6 +145,10 @@ declare global {
   interface Window {
     workbench: {
       scanCases: () => Promise<WorkbenchCase[]>;
+      listWorkspaces: () => Promise<WorkspaceSummary[]>;
+      getCurrentWorkspace: () => Promise<WorkspaceSummary | null>;
+      createWorkspace: (name: string) => Promise<{ workspace: WorkspaceSummary; cases: WorkbenchCase[] }>;
+      switchWorkspace: (workspaceId: string) => Promise<{ workspace: WorkspaceSummary; cases: WorkbenchCase[] }>;
       importDataFolder: () => Promise<ImportDataResult>;
       onDataImported: (callback: (result: ImportDataResult) => void) => () => void;
       onDataImportError: (callback: (message: string) => void) => () => void;

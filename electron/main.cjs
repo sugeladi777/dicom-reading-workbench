@@ -8,20 +8,106 @@ const initSqlJs = require('sql.js');
 const isDevServer = process.env.WORKBENCH_DEV === '1';
 const appRoot = app.isPackaged ? path.join(__dirname, '..') : process.cwd();
 const isPortableWindows = app.isPackaged && process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_DIR;
-const userRoot = app.isPackaged
-  ? (isPortableWindows ? process.env.PORTABLE_EXECUTABLE_DIR : app.getPath('userData'))
-  : process.cwd();
-const dataRoot = path.join(userRoot, 'data');
-const rawRoot = path.join(dataRoot, 'raw');
-const importedRoot = path.join(rawRoot, 'imported');
-const dbPath = path.join(dataRoot, 'workbench.sqlite');
+const packagedUserRoot = isPortableWindows ? process.env.PORTABLE_EXECUTABLE_DIR : app.getPath('userData');
+const devUserRoot = path.join(app.getPath('userData'), 'dev-data');
+const userRoot = app.isPackaged ? packagedUserRoot : devUserRoot;
+const workspaceContainerRoot = path.join(userRoot, 'workspaces');
+const workspaceConfigPath = path.join(userRoot, 'workspace-config.json');
+const DEFAULT_WORKSPACE_ID = 'default';
+const DEFAULT_WORKSPACE_NAME = '默认工作区';
 
 let mainWindow;
 let db;
 let caseCache = new Map();
+let workspaceConfig;
+let currentWorkspace;
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function safeWorkspaceId(name) {
+  return name
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || `workspace-${Date.now()}`;
+}
+
+function defaultWorkspaceConfig() {
+  return {
+    currentWorkspaceId: DEFAULT_WORKSPACE_ID,
+    workspaces: [
+      {
+        id: DEFAULT_WORKSPACE_ID,
+        name: DEFAULT_WORKSPACE_NAME,
+        createdAt: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function saveWorkspaceConfig() {
+  ensureDir(userRoot);
+  fs.writeFileSync(workspaceConfigPath, JSON.stringify(workspaceConfig, null, 2), 'utf8');
+}
+
+function loadWorkspaceConfig() {
+  ensureDir(userRoot);
+  ensureDir(workspaceContainerRoot);
+  if (!fs.existsSync(workspaceConfigPath)) {
+    workspaceConfig = defaultWorkspaceConfig();
+    saveWorkspaceConfig();
+  } else {
+    try {
+      workspaceConfig = JSON.parse(fs.readFileSync(workspaceConfigPath, 'utf8'));
+    } catch {
+      workspaceConfig = defaultWorkspaceConfig();
+      saveWorkspaceConfig();
+    }
+  }
+
+  if (!Array.isArray(workspaceConfig.workspaces) || !workspaceConfig.workspaces.length) {
+    workspaceConfig = defaultWorkspaceConfig();
+    saveWorkspaceConfig();
+  }
+
+  const found = workspaceConfig.workspaces.find((item) => item.id === workspaceConfig.currentWorkspaceId);
+  currentWorkspace = found || workspaceConfig.workspaces[0];
+  workspaceConfig.currentWorkspaceId = currentWorkspace.id;
+  saveWorkspaceConfig();
+}
+
+function getWorkspaceRoot(workspaceId = currentWorkspace?.id) {
+  return path.join(workspaceContainerRoot, workspaceId || DEFAULT_WORKSPACE_ID);
+}
+
+function getRawRoot(workspaceId = currentWorkspace?.id) {
+  return path.join(getWorkspaceRoot(workspaceId), 'raw');
+}
+
+function getImportedRoot(workspaceId = currentWorkspace?.id) {
+  return path.join(getRawRoot(workspaceId), 'imported');
+}
+
+function getDbPath(workspaceId = currentWorkspace?.id) {
+  return path.join(getWorkspaceRoot(workspaceId), 'workbench.sqlite');
+}
+
+function getWorkspaceSummary(workspace = currentWorkspace) {
+  if (!workspace) return null;
+  return {
+    ...workspace,
+    rootPath: getWorkspaceRoot(workspace.id),
+    rawPath: getRawRoot(workspace.id),
+    dbPath: getDbPath(workspace.id)
+  };
+}
+
+function listWorkspaceSummaries() {
+  return (workspaceConfig?.workspaces || []).map((workspace) => getWorkspaceSummary(workspace));
 }
 
 function walkFiles(root) {
@@ -48,6 +134,7 @@ function safeFolderName(name) {
 }
 
 function uniqueImportDestination(sourceFolder) {
+  const importedRoot = getImportedRoot();
   ensureDir(importedRoot);
   const parsed = path.parse(sourceFolder);
   const base = safeFolderName(parsed.ext.toLowerCase() === '.zip' ? parsed.name : path.basename(sourceFolder));
@@ -97,6 +184,7 @@ function summarizeImportedSource(source, destination, copied) {
     source,
     destination,
     copied,
+    workspace: getWorkspaceSummary(),
     dicomFiles: sourceDicomFiles.length,
     jsonFiles: sourceJsonFiles.length,
     cases
@@ -104,6 +192,7 @@ function summarizeImportedSource(source, destination, copied) {
 }
 
 async function importFolder(source) {
+  const rawRoot = getRawRoot();
   let destination = source;
   let copied = false;
   if (path.resolve(source) !== path.resolve(rawRoot) && !isInside(rawRoot, source)) {
@@ -302,6 +391,7 @@ function parseReportJsonFile(file) {
 }
 
 function scanCasesFromDisk() {
+  const rawRoot = getRawRoot();
   const files = walkFiles(rawRoot);
   const dcmByDir = new Map();
   const primaryReports = new Map();
@@ -379,10 +469,14 @@ function scanCasesFromDisk() {
 }
 
 async function initDatabase() {
-  ensureDir(dataRoot);
+  const workspaceRoot = getWorkspaceRoot();
+  const dbPath = getDbPath();
+  ensureDir(workspaceRoot);
+  ensureDir(getRawRoot());
   const SQL = await initSqlJs({
     locateFile: (file) => require.resolve(`sql.js/dist/${file}`)
   });
+  if (db) db.close();
   db = fs.existsSync(dbPath) ? new SQL.Database(fs.readFileSync(dbPath)) : new SQL.Database();
 
   db.run(`
@@ -470,7 +564,9 @@ async function initDatabase() {
 }
 
 function flushDb() {
-  ensureDir(dataRoot);
+  const workspaceRoot = getWorkspaceRoot();
+  const dbPath = getDbPath();
+  ensureDir(workspaceRoot);
   const data = db.export();
   fs.writeFileSync(`${dbPath}.tmp`, Buffer.from(data));
   fs.renameSync(`${dbPath}.tmp`, dbPath);
@@ -491,6 +587,37 @@ function columnExists(table, column) {
 
 function ensureColumn(table, column, type) {
   if (!columnExists(table, column)) db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
+async function switchWorkspace(workspaceId) {
+  const found = workspaceConfig.workspaces.find((item) => item.id === workspaceId);
+  if (!found) throw new Error(`未找到工作区：${workspaceId}`);
+  currentWorkspace = found;
+  workspaceConfig.currentWorkspaceId = found.id;
+  saveWorkspaceConfig();
+  await initDatabase();
+  const cases = scanCasesFromDisk();
+  return { workspace: getWorkspaceSummary(), cases };
+}
+
+async function createWorkspace(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) throw new Error('工作区名称不能为空。');
+  const baseId = safeWorkspaceId(trimmed);
+  let workspaceId = baseId;
+  let suffix = 1;
+  while (workspaceConfig.workspaces.some((item) => item.id === workspaceId)) {
+    suffix += 1;
+    workspaceId = `${baseId}-${suffix}`;
+  }
+  const workspace = {
+    id: workspaceId,
+    name: trimmed,
+    createdAt: new Date().toISOString()
+  };
+  workspaceConfig.workspaces.push(workspace);
+  saveWorkspaceConfig();
+  return switchWorkspace(workspace.id);
 }
 
 function saveSession(payload) {
@@ -908,6 +1035,10 @@ async function createWindow() {
 }
 
 ipcMain.handle('cases:scan', () => scanCasesFromDisk());
+ipcMain.handle('workspaces:list', () => listWorkspaceSummaries());
+ipcMain.handle('workspaces:get-current', () => getWorkspaceSummary());
+ipcMain.handle('workspaces:create', async (_event, name) => createWorkspace(name));
+ipcMain.handle('workspaces:switch', async (_event, workspaceId) => switchWorkspace(workspaceId));
 
 ipcMain.handle('cases:get', (_event, caseId) => {
   if (!caseCache.size) scanCasesFromDisk();
@@ -940,7 +1071,8 @@ ipcMain.handle('drafts:list', () => listDrafts());
 ipcMain.handle('drafts:delete', (_event, caseId) => deleteDraft(caseId));
 
 app.whenReady().then(async () => {
-  ensureDir(rawRoot);
+  loadWorkspaceConfig();
+  ensureDir(getRawRoot());
   await initDatabase();
   scanCasesFromDisk();
   await createWindow();

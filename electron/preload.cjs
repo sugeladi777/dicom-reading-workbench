@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('workbench', {
   scanCases: () => ipcRenderer.invoke('cases:scan'),
+  listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
+  getCurrentWorkspace: () => ipcRenderer.invoke('workspaces:get-current'),
+  createWorkspace: (name) => ipcRenderer.invoke('workspaces:create', name),
+  switchWorkspace: (workspaceId) => ipcRenderer.invoke('workspaces:switch', workspaceId),
   importDataFolder: () => ipcRenderer.invoke('data:import-folder'),
   onDataImported: (callback) => {
     const listener = (_event, result) => callback(result);

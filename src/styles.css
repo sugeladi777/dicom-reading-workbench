@@ -159,7 +159,7 @@ pre {
 .case-sidebar {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: 12px;
   overflow: hidden;
 }
@@ -238,6 +238,27 @@ pre {
 .reader-field input {
   height: 38px;
   padding: 0 12px;
+}
+
+.workspace-field select,
+.workspace-create-row input {
+  height: 38px;
+  padding: 0 12px;
+}
+
+.workspace-meta {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.workspace-create-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
 .progress-pill {
